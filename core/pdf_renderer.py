@@ -241,6 +241,9 @@ class PDFRenderer:
         html_doc = builder.assemble_document(cleaned_pages, filtered_toc)
         pdf_path = self.render_html_to_pdf(html_doc, output_pdf_path)
 
+        # Inject hierarchical interactive PDF Bookmarks / Sidebar Index
+        self.inject_pdf_outline(pdf_path, is_master=is_master, volume_number=volume_number)
+
         # Inspect resulting PDF
         doc = fitz.open(pdf_path)
         stats = {
@@ -253,6 +256,70 @@ class PDFRenderer:
         }
         doc.close()
         return stats
+
+    def inject_pdf_outline(self, pdf_path: str, is_master: bool = False, volume_number: Optional[int] = None):
+        """
+        Scans rendered PDF for Part, Chapter, and Section headers and injects
+        hierarchical interactive Bookmarks / Sidebar Index into the PDF file.
+        """
+        doc = fitz.open(pdf_path)
+        toc = []
+        
+        # Front matter bookmarks
+        toc.append([1, "প্রচ্ছদ (Prestige Cover)", 1])
+        if len(doc) > 1:
+            toc.append([1, "সূচিপত্র (Table of Contents)", 2])
+        if len(doc) > 2:
+            toc.append([1, "গ্রন্থ পরিচয় ও উৎসর্গ (Half-Title & Notice)", 3])
+
+        part_pat = re.compile(r'^(প্রথম পর্ব|দ্বিতীয় খণ্ড|দ্বিতীয় পর্ব|তৃতীয় খণ্ড|তৃতীয় পর্ব|চতুর্থ খণ্ড|চতুর্থ পর্ব|পঞ্চম খণ্ড|পঞ্চম পর্ব|ষষ্ঠ পর্ব|ষষ্ঠ খণ্ড|Part\s+[IVXLCDM]+)', re.I)
+        ch_pat = re.compile(r'^(অধ্যায়|অধ্যায়|Chapter\s+\d+|ভূমিকা|Preface|পরিশিষ্ট|Glossary)', re.I)
+
+        seen_titles = set()
+
+        for p_idx in range(len(doc)):
+            page_text = doc[p_idx].get_text()
+            lines = page_text.splitlines()
+
+            # Check if this page has the Subject Index
+            if "বিষয়ভিত্তিক বর্ণানুক্রমিক নির্ঘণ্ট" in page_text or "Subject Index" in page_text:
+                if "বিষয়ভিত্তিক বর্ণানুক্রমিক নির্ঘণ্ট (Subject Index)" not in seen_titles:
+                    seen_titles.add("বিষয়ভিত্তিক বর্ণানুক্রমিক নির্ঘণ্ট (Subject Index)")
+                    toc.append([1, "বিষয়ভিত্তিক বর্ণানুক্রমিক নির্ঘণ্ট (Subject Index)", p_idx + 1])
+
+            if p_idx < 3:
+                continue
+
+            for line in lines:
+                line_s = line.strip()
+                if not line_s or len(line_s) > 85:
+                    continue
+
+                if part_pat.search(line_s):
+                    clean_t = re.sub(r'^[#\s]+', '', line_s)
+                    if clean_t not in seen_titles and "মূল পৃষ্ঠা" not in clean_t and "Page" not in clean_t and "—" not in clean_t:
+                        seen_titles.add(clean_t)
+                        toc.append([1, clean_t, p_idx + 1])
+                        break
+
+                if ch_pat.search(line_s):
+                    clean_t = re.sub(r'^[#\s]+', '', line_s)
+                    if clean_t not in seen_titles and "মূল পৃষ্ঠা" not in clean_t and "Page" not in clean_t and "—" not in clean_t:
+                        seen_titles.add(clean_t)
+                        toc.append([2, clean_t, p_idx + 1])
+                        break
+
+        doc.set_toc(toc)
+        v_title = f"Volume {volume_number}" if volume_number else "Complete Master Edition"
+        doc.set_metadata({
+            "title": f"দ্য ব্ল্যাক বুক অব পাওয়ার — {v_title}",
+            "author": "স্ট্যান টেলর (Stan Taylor)",
+            "subject": "The Black Book of Power: Sovereign Bengali Translation Edition",
+            "keywords": "Power, Psychology, Manipulation, Bangladesh, Bengali, Black Book of Power, Index",
+            "creator": "Universal PDF Publishing Engine"
+        })
+        doc.save(pdf_path, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+        doc.close()
 
     def render_volume(self, volume_num: int, output_pdf_path: str, mode: str = "book") -> Dict[str, Any]:
         """Renders one of the 6 defined book volumes with bespoke cover and styling."""
