@@ -1,0 +1,43 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large binary documents and copyrighted files
+*.pdf
+*.epub
+*.mobi
+
+# Local translated book data and trackers
+translations/
+
+# Temporary and one-off script helpers
+check_fix_list.py
+check_headers.py
+inspect_headers.py
+standardize_all_headers.py
+test_mapping.py
+
+# Virtual Environments
+venv/
+env/
+.venv/
+ENV/
+
+# IDE & Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Temporary scratch & log files
+*.log
+scratch/
+tmp/
