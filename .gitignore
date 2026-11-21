@@ -43,3 +43,6 @@ scratch/
 tmp/
 core/book_builder.py  
 core/book_builder.py  
+
+output/
+scratch/

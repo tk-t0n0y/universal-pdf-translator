@@ -31,50 +31,71 @@ class PageContentCleaner:
         lines = raw_text.splitlines()
         page_num = fallback_page_num
         chapter_title = ""
-        
-        # 1. Try to extract metadata from the top lines
         body_start_idx = 0
         has_hr = False
-        
-        # Check if there is a '---' separator within first 10 lines
-        for i, line in enumerate(lines[:12]):
-            s = line.strip()
-            if s == "---" or s == "***" or s == "___":
-                has_hr = True
-                body_start_idx = i + 1
+
+        # 1. Check if file starts with YAML frontmatter (---)
+        first_non_empty = -1
+        for i, l in enumerate(lines[:5]):
+            if l.strip():
+                first_non_empty = i
                 break
 
-            # Check for page number and chapter title in header blockquote or title line
-            if "পৃষ্ঠা" in s or "Page" in s:
-                m_pg = re.search(r'Page\s+(\d+)', s, re.IGNORECASE)
-                if m_pg:
-                    page_num = int(m_pg.group(1))
-                else:
-                    m_bn_pg = re.search(r'পৃষ্ঠা\s+([০-৯]+)', s)
-                    if m_bn_pg and page_num == fallback_page_num:
-                        page_num = int(to_english_digits(m_bn_pg.group(1)))
-
-                # e.g. "> **পৃষ্ঠা ৬ (Page 6) — ভূমিকা: বেদনার সওদাগর (Preface: The Pain Merchant)**"
-                if "—" in s or "–" in s:
-                    parts = re.split(r'[—–]', s, maxsplit=1)
-                    if len(parts) > 1:
-                        candidate = parts[1].strip().rstrip('*').rstrip()
-                        if candidate and "পরিসংখ্যান" not in candidate and "Status" not in candidate:
-                            chapter_title = candidate
-                
-        if not has_hr:
-            # Look for line with 'পরিসংখ্যান:' or 'Status:'
-            for i, line in enumerate(lines[:10]):
+        if first_non_empty != -1 and lines[first_non_empty].strip() in ["---", "***"]:
+            for i in range(first_non_empty + 1, min(len(lines), 25)):
+                s = lines[i].strip()
+                if s in ["---", "***"]:
+                    has_hr = True
+                    body_start_idx = i + 1
+                    break
+                if s.startswith("page:"):
+                    m_pg = re.search(r'\d+', s)
+                    if m_pg:
+                        page_num = int(m_pg.group())
+                elif s.startswith("title:"):
+                    cand = s.replace("title:", "").strip().strip('"').strip("'")
+                    if cand:
+                        chapter_title = cand
+                elif s.startswith("chapter:") and not chapter_title:
+                    m_ch = re.search(r'\d+', s)
+                    if m_ch:
+                        chapter_title = f"অধ্যায় {m_ch.group()}"
+        else:
+            # 2. Format B or C (Blockquotes or markdown headers)
+            for i, line in enumerate(lines[:15]):
                 s = line.strip()
-                if "পরিসংখ্যান" in s or "Status" in s or "যাচাইকৃত" in s:
-                    # Body starts after this line and following empty lines
+                if s in ["---", "***", "___"]:
+                    has_hr = True
                     body_start_idx = i + 1
                     break
 
+                if "পৃষ্ঠা" in s or "Page" in s:
+                    m_pg = re.search(r'Page\s+(\d+)', s, re.IGNORECASE)
+                    if m_pg:
+                        page_num = int(m_pg.group(1))
+                    else:
+                        m_bn_pg = re.search(r'পৃষ্ঠা\s+([০-৯]+)', s)
+                        if m_bn_pg and page_num == fallback_page_num:
+                            page_num = int(to_english_digits(m_bn_pg.group(1)))
+
+                    if "—" in s or "–" in s:
+                        parts = re.split(r'[—–]', s, maxsplit=1)
+                        if len(parts) > 1:
+                            candidate = parts[1].strip().rstrip('*').rstrip()
+                            if candidate and "পরিসংখ্যান" not in candidate and "Status" not in candidate:
+                                chapter_title = candidate
+
+            if not has_hr:
+                for i, line in enumerate(lines[:12]):
+                    s = line.strip()
+                    if "পরিসংখ্যান" in s or "Status" in s or "যাচাইকৃত" in s or "status:" in s:
+                        body_start_idx = i + 1
+                        break
+
         # Slice body
         body_lines = lines[body_start_idx:]
-        
-        # Trim leading blank lines and redundant top '# দ্য ব্ল্যাক বুক' or '# পৃষ্ঠা'
+
+        # Trim leading blank lines and redundant top metadata
         cleaned_body_lines = []
         skipping_intro = True
         for line in body_lines:
@@ -82,11 +103,13 @@ class PageContentCleaner:
             if skipping_intro:
                 if not s:
                     continue
-                if s.startswith("# দ্য ব্ল্যাক বুক অব পাওয়ার") and page_num > 1:
+                if (s.startswith("# দ্য ব্ল্যাক বুক") or s.startswith("# The Black Book")) and page_num > 1:
                     continue
-                if s.startswith("# পৃষ্ঠা") or s.startswith("## পৃষ্ঠা"):
+                if s.startswith("# পৃষ্ঠা") or s.startswith("## পৃষ্ঠা") or s.startswith("> **পৃষ্ঠা"):
                     continue
-                if s == "---":
+                if s in ["---", "***"]:
+                    continue
+                if any(s.startswith(k) for k in ["পরিসংখ্যান:", "> *পরিসংখ্যান*", "status:", "coverage_ratio:", "source_sentences:", "translated_sentences:", "total_pages:"]):
                     continue
                 skipping_intro = False
             cleaned_body_lines.append(line)
@@ -122,41 +145,50 @@ class PageContentCleaner:
         """
         lines = md_text.splitlines()
         enhanced_lines = []
-        
+
         in_warning = False
         in_casestudy = False
-        
+
         for line in lines:
             stripped = line.strip()
-            
+
+            # If encountering ANY heading, close any currently open callout
+            if stripped.startswith("#"):
+                if in_warning:
+                    enhanced_lines.append("</div>\n")
+                    in_warning = False
+                if in_casestudy:
+                    enhanced_lines.append("</div>\n")
+                    in_casestudy = False
+
             # Detect Warning sections
             if any(term in stripped for term in ["আইনি সতর্কবার্তাসমূহ", "আইনি সতর্কতা", "Legal Warnings", "ঝুঁকি গ্রহণ"]):
                 enhanced_lines.append(f'<div class="callout callout-warning">\n\n{line}')
                 in_warning = True
                 continue
-            elif in_warning and stripped.startswith("### "):
-                enhanced_lines.append("</div>\n")
-                in_warning = False
-                
+
             # Detect Case Studies
             if any(term in stripped for term in ["কেস স্টাডি", "বাস্তব কেস", "Case Study"]):
                 enhanced_lines.append(f'<div class="callout callout-case">\n\n{line}')
                 in_casestudy = True
                 continue
-            elif in_casestudy and stripped.startswith("### "):
-                enhanced_lines.append("</div>\n")
-                in_casestudy = False
-                
+
             # Convert standalone '---' in body to elegant ornament
             if stripped == "---":
+                if in_warning:
+                    enhanced_lines.append("</div>\n")
+                    in_warning = False
+                if in_casestudy:
+                    enhanced_lines.append("</div>\n")
+                    in_casestudy = False
                 enhanced_lines.append('\n<div class="divider-ornament">❖ ❖ ❖</div>\n')
                 continue
-                
+
             enhanced_lines.append(line)
-            
+
         if in_warning:
             enhanced_lines.append("</div>")
         if in_casestudy:
             enhanced_lines.append("</div>")
-            
+
         return "\n".join(enhanced_lines)
