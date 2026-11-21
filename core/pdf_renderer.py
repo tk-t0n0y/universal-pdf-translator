@@ -209,7 +209,7 @@ class PDFRenderer:
         start_page: int,
         end_page: int,
         output_pdf_path: str,
-        mode: str = "1to1",
+        mode: str = "book",
         include_cover: bool = True,
         include_toc: bool = True,
         volume_number: Optional[int] = None,
@@ -254,7 +254,7 @@ class PDFRenderer:
         doc.close()
         return stats
 
-    def render_volume(self, volume_num: int, output_pdf_path: str, mode: str = "1to1") -> Dict[str, Any]:
+    def render_volume(self, volume_num: int, output_pdf_path: str, mode: str = "book") -> Dict[str, Any]:
         """Renders one of the 6 defined book volumes with bespoke cover and styling."""
         if volume_num not in self.PARTS_MAP:
             raise ValueError(f"Invalid volume number: {volume_num}. Valid volumes are 1 through 6.")
